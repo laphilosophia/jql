@@ -19,33 +19,42 @@ export async function* ndjsonStream(
   const engine = new Engine(map, { debug: options.debug });
 
   const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  let leftover: Uint8Array | null = null;
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
+      let chunk = value;
+      if (leftover) {
+        const combined = new Uint8Array(leftover.length + value.length);
+        combined.set(leftover);
+        combined.set(value, leftover.length);
+        chunk = combined;
+        leftover = null;
+      }
 
-      // Last element might be an incomplete line
-      buffer = lines.pop() || '';
+      let start = 0;
+      while (start < chunk.length) {
+        const newlineIndex = chunk.indexOf(10, start); // 10 is \n
+        if (newlineIndex === -1) {
+          leftover = chunk.slice(start);
+          break;
+        }
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const lineBuffer = new TextEncoder().encode(line);
-        engine.reset();
-        const result = engine.execute(lineBuffer);
-        yield result;
+        const line = chunk.subarray(start, newlineIndex);
+        if (line.length > 0) {
+          engine.reset();
+          yield engine.execute(line);
+        }
+        start = newlineIndex + 1;
       }
     }
 
-    // Process remainder
-    if (buffer.trim()) {
+    if (leftover && leftover.length > 0) {
       engine.reset();
-      yield engine.execute(new TextEncoder().encode(buffer));
+      yield engine.execute(leftover);
     }
   } finally {
     reader.releaseLock();

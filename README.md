@@ -1,83 +1,31 @@
 # JQL (JSON Query Language) 🚀
 
-**A high-performance, streaming-first JSON projection engine for massive datasets.**
+**JQL is one of the fastest streaming JSON projection engines in pure JavaScript — and the only one designed to run safely at the edge**
 
-JQL is designed to extract specific data from large JSON files (100MB to 10GB+) with **constant memory overhead** and **linear traversal speed**. By using a Layered FSM (Finite State Machine) architecture, JQL avoids the "full parse" bottleneck of traditional `JSON.parse()`.
+JQL is a byte-level, zero-allocation streaming engine designed for the high-performance requirements of FinTech, telemetry, and edge runtimes. It projects specific fields from massive JSON streams with **constant memory overhead** and **near-native speeds**.
 
----
-
-## ✨ Features
-
-- **Layered FSM Engine**: Byte-level processing with no backtracking.
-- **$O(1)$ Memory Overhead**: Memory usage is proportional to JSON depth, not payload size.
-- **Automatic Byte-Skipping**: Irrelevant subtrees are skipped at the primitive level without semantic parsing.
-- **Native Streaming**: First-class support for `ReadableStream<Uint8Array>`.
-- **GraphQL-like Selection**: Declarative syntax for data extraction.
-- **Directives & Aliases**: Built-in `@alias`, `@coerce`, `@default`, and `@substring` support.
-- **Progressive Indexing**: Ephemeral root-key offset caching for optimized repeated queries.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build: Battle-Tested](https://img.shields.io/badge/Build-Battle--Tested-blue.svg)](docs/performance.md)
 
 ---
 
-## 🚀 Quick Start
+## � Performance at a Glance
 
-### Installation
+JQL is optimized for **throughput** and **resource isolation**.
+
+- **1,000,000 Rows**: Processed in **4.22s** (~230k matches/s).
+- **Constant Memory**: Stable $O(Depth)$ heap usage, regardless of payload size (1MB or 10GB).
+- **Zero Allocation**: Allocation-free hot loop and GC-free steady state.
+
+---
+
+## �️ CLI Usage
+
+JQL provides a high-speed terminal tool for data analysis.
 
 ```bash
-npm install jql
-```
-
-### Basic Usage (Pull-Mode)
-
-```typescript
-import { build } from 'jql';
-
-// Stream a massive JSON from any source
-const jql = build(stream);
-
-const result = await jql.read(`{
-  id,
-  user: profile.name @substring(len: 10),
-  balance @coerce(type: "number") @default(value: 0)
-}`);
-```
-
-### Real-Time Usage (Push-Mode)
-
-For high-intensity telemetry or logs, use the `subscribe` API to receive matches as they materialize.
-
-```typescript
-import { subscribe } from 'jql';
-
-const sub = subscribe(ReadableStream, '{ lat, lon, speed }', {
-  onMatch: (data) => console.log('New Match:', data),
-  onComplete: () => console.log('Stream finished'),
-  onError: (err) => console.error('Stream failure:', err)
-});
-
-// sub.unsubscribe(); // Stop anytime
-```
-
----
-
-## Test Data
-
-> [MS Edge JSON Dummy Data Set](https://microsoftedge.github.io/Demos/json-dummy-data/)
-
-1M Row Flight Data
-
-```bash
-curl -C - -L -o data.json "https://agents-for-data-prod-tmp.8e464e4039ccd5897a90175399bb04a7.r2.cloudflarestorage.com/2026-01-05/7ab6aa37-50c2-4b12-93ce-cc5769bc56f4/flights-1m.json?X-Amz-Expires=3600&X-Amz-Date=20260105T101819Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=7283c8cfa964ae1d21c994a61ac3c987%2F20260105%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=6cc8988f2d75adcfb932b9fb333dc7bacfd349656f6547452e0b69dac465ebf3"
-```
-
----
-
-## 💻 CLI Usage
-
-JQL comes with a high-performance CLI for terminal-based projection.
-
-```bash
-# 1. Direct file projection
-jql data.json "{ id, name }"
+# 1. Simple file projection
+jql data.json "{ name, meta { type } }"
 
 # 2. Piping from stdin
 cat massive.json | jql "{ actor.login }"
@@ -87,36 +35,45 @@ tail -f telemetery.log | jql --jsonl "{ lat, lon }"
 ```
 
 > [!TIP]
-> Use the `--ndjson` or `--jsonl` flag for line-delimited JSON files to enable FSM recycling, which significantly reduces GC pressure on massive streams.
+> Use the `--ndjson` flag for line-delimited files to enable FSM recycling, which significantly reduces GC pressure on massive streams.
 
 ---
 
-## 📊 Performance Contract
+## � Programmatic Usage
 
-JQL is optimized for **throughput** and **resource isolation**.
+### Pull-Mode (Standard)
 
-| Metric | Streaming Mode | Indexed Mode |
-| :--- | :--- | :--- |
-| **Time Complexity** | $O(N)$ (Single Pass) | Sub-linear (Jump Access) |
-| **Memory Cost** | $O(Depth)$ | $O(Depth + IndexSize)$ |
-| **Data Skipping** | ✅ Automatic | ✅ Optimized |
+```typescript
+import { read } from 'jql';
 
-> [!IMPORTANT]
-> JQL is a **Projection Engine**, not a compute engine. It excels at *finding* and *preparing* data for your application logic.
+const result = await read(stream, '{ id, name }');
+```
+
+### Push-Mode (Real-time)
+
+```typescript
+import { subscribe } from 'jql';
+
+subscribe(telemetryStream, '{ lat, lon }', {
+  onMatch: (data) => console.log('Match!', data),
+  onComplete: () => console.log('Done.')
+});
+```
 
 ---
 
-## 🛠️ Documentation
+## 📚 Documentation
 
-- **[Mental Model](docs/mental_model.md)**: "JQL does not parse JSON; it moves through it."
-- **[Performance Contract](docs/performance_contract.md)**: Hard guarantees and complexity analysis.
-- **[Capability Matrix](docs/capabilities.md)**: What JQL can and cannot do.
-- **[Error Semantics](docs/error_semantics.md)**: Abort vs. Safe fallback policies.
-- **[Non-Goals](docs/non_goals.md)**: Preventing scope creep.
-- **[Technical Spec (V2)](docs/jql_v2_spec.md)**: FSM State Diagrams and implementation details.
+Dive deeper into the details:
+
+- [**Documentation Index**](docs/README.md) - The starting point for all guides.
+- [**Query Language Guide**](docs/query-language.md) - Syntax and Directives.
+- [**API Reference**](docs/api-reference.md) - Runtimes and Adapters.
+- [**Internals Deep-Dive**](docs/internals.md) - How we achieved near-native speed.
+- [**Performance Contract**](docs/performance.md) - Our ironclad guarantees.
 
 ---
 
 ## ⚖️ License
 
-MIT © 2026 JQL Maintainers
+MIT © 2026 laphilosophia

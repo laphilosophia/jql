@@ -41,9 +41,9 @@ export class Engine {
   }
 
   public processChunk(chunk: Uint8Array) {
-    for (const token of this.tokenizer.processChunk(chunk)) {
+    this.tokenizer.processChunk(chunk, (token) => {
       this.handleToken(token);
-    }
+    });
   }
 
   public getResult(): any {
