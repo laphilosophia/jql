@@ -1,5 +1,6 @@
 import { DirectiveRegistry } from './directives'
 import { BudgetExhaustedError, StructuralMismatchError } from './errors'
+import { FanOutGuard, FanOutLimits } from './fan-out-guard'
 import { SelectionMap } from './parser'
 import { JQLStats, OutputSink } from './sink'
 import { Token, Tokenizer, TokenType } from './tokenizer'
@@ -30,6 +31,12 @@ export class Engine {
   private firstMatchChunk: Uint8Array | null = null
   private firstMatchChunkPos: number = 0
 
+  // Fast-path function pointer (set at construction)
+  private emitResult: (item: any, endPos?: number) => void
+
+  // Fan-out guardrails for DoS protection
+  private fanOutGuard?: FanOutGuard
+
   constructor(
     private initialSelection: SelectionMap,
     options?: {
@@ -39,6 +46,7 @@ export class Engine {
       signal?: AbortSignal
       budget?: { maxMatches?: number; maxBytes?: number; maxDurationMs?: number }
       emitMode?: 'object' | 'raw'
+      fanOutLimits?: FanOutLimits
     }
   ) {
     this.debug = options?.debug ?? false
@@ -48,6 +56,19 @@ export class Engine {
     this.tokenizer = new Tokenizer(undefined, options)
     this.selectionStack.push({ selection: initialSelection })
     this.startTime = performance.now()
+
+    // Set emit fast-path (ONE TIME - eliminates branch in hot path)
+    // Use inline lambdas instead of bind() to avoid closure allocation
+    if (this.emitMode === 'raw') {
+      this.emitResult = (item, endPos) => this.emitRaw(item, endPos!)
+    } else {
+      this.emitResult = (item) => this.emitObject(item)
+    }
+
+    // Initialize fan-out guardrails for DoS protection
+    if (options?.fanOutLimits) {
+      this.fanOutGuard = new FanOutGuard(options.fanOutLimits)
+    }
   }
 
   private trace(msg: string) {
@@ -140,8 +161,13 @@ export class Engine {
     if (this.skipDepth > 0) {
       if (token.type === TokenType.LEFT_BRACE || token.type === TokenType.LEFT_BRACKET) {
         this.skipDepth++
+        // Fan-out guard: even skipped structures count toward depth limit
+        // This prevents DoS attacks via deeply nested unmatched structures
+        this.fanOutGuard?.enterStructure(token.type === TokenType.LEFT_BRACKET)
       } else if (token.type === TokenType.RIGHT_BRACE || token.type === TokenType.RIGHT_BRACKET) {
         this.skipDepth--
+        // Fan-out guard: track exit for skipped structures
+        this.fanOutGuard?.exitStructure()
         if (this.skipDepth === 0) {
           this.totalSkipTime += performance.now() - this.skipStartTime
           this.onStructureEnd(token.end)
@@ -213,6 +239,9 @@ export class Engine {
   }
 
   private onStructureStart(isArray: boolean, startPos?: number) {
+    // Fan-out guardrails: check depth limit
+    this.fanOutGuard?.enterStructure(isArray)
+
     if (this.emitMode === 'raw' && !this.isCapturing && this.expectingMatch()) {
       // For raw mode, we capture items of root array OR the root object itself
       // If we are at depth 0, it's either the root object or root array.
@@ -304,15 +333,11 @@ export class Engine {
         const finishedItem = this.resultStack.pop()
         this.matchedCount++
         this.enforceBudget()
-        if (this.emitMode === 'raw' && this.isCapturing) {
-          const raw = this.assembleRaw(endPos!)
-          this.sink?.onRawMatch?.(raw)
-          this.isCapturing = false
-        }
+
+        // Fast-path emit (ZERO branches)
+        this.emitResult(finishedItem, endPos)
+
         this.finalResult = finishedItem
-        if (this.emitMode === 'object') {
-          this.sink?.onMatch?.(finishedItem)
-        }
       } else if (this.resultStack.length === 1 && this.isArrayStack.length === 0 && wasArray) {
         // Root array ended - only store final result, don't emit as match
         // to avoid double emission (individual items were already emitted)
@@ -323,19 +348,17 @@ export class Engine {
         if (this.resultStack.length === 1 && this.isArrayStack[0]) {
           this.matchedCount++
           this.enforceBudget()
-          if (this.emitMode === 'raw' && this.isCapturing) {
-            const raw = this.assembleRaw(endPos!)
-            this.sink?.onRawMatch?.(raw)
-            this.isCapturing = false
-          }
-          if (this.emitMode === 'object') {
-            this.sink?.onMatch?.(finishedItem)
-          }
+
+          // Fast-path emit (ZERO branches)
+          this.emitResult(finishedItem, endPos)
         }
       }
     }
     this.keyStack.pop()
     this.currentKey = null
+
+    // Fan-out guardrails: track structure exit
+    this.fanOutGuard?.exitStructure()
   }
 
   private onValue(value: any, endPos?: number) {
@@ -431,6 +454,24 @@ export class Engine {
     }
 
     return result
+  }
+
+  /**
+   * Fast-path: Emit raw bytes (zero-copy)
+   */
+  private emitRaw(item: any, endPos: number) {
+    if (this.isCapturing) {
+      const raw = this.assembleRaw(endPos)
+      this.sink?.onRawMatch?.(raw)
+      this.isCapturing = false
+    }
+  }
+
+  /**
+   * Fast-path: Emit object
+   */
+  private emitObject(item: any) {
+    this.sink?.onMatch?.(item)
   }
 
   private getLiteralValue(type: TokenType): any {

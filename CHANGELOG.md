@@ -1,5 +1,44 @@
 # Changelog
 
+## [3.2.0] - 2026-01-06
+
+### Added - Phase 4: Operational Safety
+
+#### Fan-out Guardrails
+
+- **Depth Limiting**: Configurable `maxDepth` to prevent stack exhaustion (default: 100)
+- **Array Size Limiting**: `maxArraySize` for wide array protection (default: 100,000)
+- **Object Key Limiting**: `maxObjectKeys` for large object protection (default: 10,000)
+- **DoS Protection**: Guards apply to ALL structures, including unmatched/skipped ones
+- **Typed Errors**: `FanOutLimitError` with error codes for production monitoring
+  - `ERR_JQL_FANOUT_DEPTH` - Depth limit exceeded
+  - `ERR_JQL_FANOUT_ARRAY_SIZE` - Array too wide
+  - `ERR_JQL_FANOUT_OBJECT_KEYS` - Too many object keys
+
+#### V8 Profiling Infrastructure
+
+- **Profiling Benchmark**: `src/benchmarks/profile-baseline.ts` for performance analysis
+- **Data-Driven Optimization**: Identified tokenizer as real bottleneck (43.8% of CPU)
+
+#### Performance Analysis
+
+- **Emit Path Separation**: Function pointer dispatch (code quality, no perf gain)
+- **Branch Elimination**: V8's branch predictor already excellent
+
+### Changed
+
+- Engine constructor now accepts `fanOutLimits` option
+- Skip path now enforces fan-out guards (critical DoS fix)
+- Test suite expanded to 53 tests (+5 fan-out guard tests)
+
+### Performance
+
+- **Average Throughput**: 688 Mbps (no regression)
+- **Test Suite**: 53 tests passing
+- **DoS Protection**: Full coverage for nested structures
+
+---
+
 ## [3.1.0] - 2026-01-05
 
 ### Added - Phase 3: P2 Consumer Experience

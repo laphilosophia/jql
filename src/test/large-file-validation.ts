@@ -15,26 +15,16 @@ interface TestCase {
   query: string
   expectedFields: string[]
   description: string
-  emitMode?: 'object' | 'flat' // Add emitMode
 }
 
 const testCases: TestCase[] = [
-  // 5-level nested tests (object mode for baseline)
+  // 5-level nested tests
   {
-    name: '5-Level: Simple projection (object)',
+    name: '5-Level: Simple projection',
     file: 'data/1gb_5lvl_nested_formatted.json',
     query: '{ employee { id, name } }',
     expectedFields: ['employee'],
     description: 'Extract employee ID and name',
-    emitMode: 'object',
-  },
-  {
-    name: '5-Level: Simple projection (flat)',
-    file: 'data/1gb_5lvl_nested_formatted.json',
-    query: '{ employee { id, name } }',
-    expectedFields: ['employee'],
-    description: 'Extract employee ID and name - FLAT MODE',
-    emitMode: 'flat',
   },
   {
     name: '5-Level: Deep nested projection',
@@ -120,19 +110,10 @@ async function runTest(testCase: TestCase): Promise<{
       throw new Error('No results returned')
     }
 
-    // For object mode, validate fields
-    if (emitMode === 'object') {
-      const firstResult = results[0]
-      for (const field of testCase.expectedFields) {
-        if (!(field in firstResult)) {
-          throw new Error(`Expected field '${field}' not found in result`)
-        }
-      }
-    }
-    // For flat mode, just check we got arrays
-    else if (emitMode === 'flat') {
-      if (!Array.isArray(results[0])) {
-        throw new Error('Expected array result in flat mode')
+    const firstResult = results[0]
+    for (const field of testCase.expectedFields) {
+      if (!(field in firstResult)) {
+        throw new Error(`Expected field '${field}' not found in result`)
       }
     }
 
