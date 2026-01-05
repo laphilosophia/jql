@@ -1,0 +1,35 @@
+{
+  "name": "jql",
+  "version": "2.2.0",
+  "description": "A high-performance, streaming-first JSON Query Language (JQL) engine with $O(1)$ memory guarantees and $O(N)$ traversal cost.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "jql": "./dist/cli/index.js"
+  },
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "vitest",
+    "build": "tsup src/index.ts src/cli/index.ts --format esm --dts --clean --splitting --out-dir dist",
+    "dev": "vitest",
+    "bench": "tsx src/benchmarks/benchmark.ts",
+    "stress": "tsx src/benchmarks/stress.ts"
+  },
+  "keywords": [
+    "json",
+    "query",
+    "streaming",
+    "fsm",
+    "performance",
+    "projection"
+  ],
+  "author": "Erdem Arslan <erdemarslan@ymail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

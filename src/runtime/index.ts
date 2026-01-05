@@ -1,0 +1,118 @@
+import { Engine } from '../core/engine';
+import { JQLParser } from '../core/parser';
+import { Tokenizer, TokenType } from '../core/tokenizer';
+
+export type JQLSource = string | Uint8Array | object | ReadableStream<Uint8Array>;
+
+export type JQLMode = 'streaming' | 'indexed';
+
+export interface JQLOptions {
+  mode?: JQLMode;
+  debug?: boolean;
+}
+
+export interface JQLInstance {
+  read: <T = any>(schema: string) => Promise<T>;
+}
+
+/**
+ * JQL Instance Manager
+ * Manages the lifecycle of a JQL source, including optional indexing.
+ *
+ * LifeCycle:
+ * - Index is ephemeral and tied to the instance.
+ * - Source is immutable once passed to build().
+ * - Indexed mode is opt-in to maintain O(1) memory guarantees by default.
+ */
+export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance {
+  let rootIndex: Map<string, number> | undefined;
+  let queryCount = 0;
+  const mode = options.mode || 'streaming';
+
+  const instance: JQLInstance = {
+    read: async <T = any>(schema: string): Promise<T> => {
+      queryCount++;
+      const parser = new JQLParser(schema);
+      const map = parser.parse();
+
+      // Auto-wrap selection if it looks like an object-selector but source might be an array
+      // In JQL V2, if root is array, the Engine applies selection to its elements.
+      const engine = new Engine(map, { debug: options.debug });
+
+      if (source instanceof ReadableStream) {
+        if (mode === 'indexed') {
+          console.warn('[JQL] Indexed mode is not supported for ReadableStream. Falling back to streaming.');
+        }
+        const reader = source.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          engine.processChunk(value);
+        }
+        return engine.getResult() as T;
+      }
+
+      const buffer = prepareBuffer(source as Exclude<JQLSource, ReadableStream<Uint8Array>>);
+
+      // Progressive indexing: only if mode is 'indexed' and it's a repeat query
+      if (mode === 'indexed' && queryCount > 1 && !rootIndex && buffer.length > 1024 * 1024) {
+        rootIndex = buildRootIndex(buffer);
+      }
+
+      let startOffset = 0;
+      if (mode === 'indexed' && rootIndex) {
+        const rootKeys = Object.keys(map);
+        let minOffset = Infinity;
+        for (const key of rootKeys) {
+          const offset = rootIndex.get(key);
+          if (offset !== undefined && offset < minOffset) {
+            minOffset = offset;
+          }
+        }
+        if (minOffset !== Infinity) {
+          // Jump to the first needed key with a safety cushion
+          startOffset = Math.max(0, minOffset - 50);
+        }
+      }
+
+      return engine.execute(buffer.subarray(startOffset)) as T;
+    }
+  };
+
+  return instance;
+}
+
+function buildRootIndex(buffer: Uint8Array): Map<string, number> {
+  const index = new Map<string, number>();
+  const tokenizer = new Tokenizer();
+  let depth = 0;
+  let currentKey: string | null = null;
+
+  for (const token of tokenizer.processChunk(buffer)) {
+    if (token.type === TokenType.LEFT_BRACE || token.type === TokenType.LEFT_BRACKET) {
+      depth++;
+    } else if (token.type === TokenType.RIGHT_BRACE || token.type === TokenType.RIGHT_BRACKET) {
+      depth--;
+    } else if (depth === 1 && token.type === TokenType.STRING) {
+      currentKey = token.value;
+    } else if (currentKey && depth === 1 && token.type === TokenType.COLON) {
+      index.set(currentKey, token.start);
+      currentKey = null;
+    }
+
+    if (depth === 0 && index.size > 0) break;
+  }
+  return index;
+}
+
+export async function query<T = any>(source: JQLSource, schema: string, options?: JQLOptions): Promise<T> {
+  const { read } = build(source, options);
+  return read<T>(schema);
+}
+
+function prepareBuffer(source: JQLSource): Uint8Array {
+  if (source instanceof Uint8Array) return source;
+  if (typeof source === 'string') return new TextEncoder().encode(source);
+  if (typeof source === 'object') return new TextEncoder().encode(JSON.stringify(source));
+  throw new Error('Invalid JQL source provided');
+}
