@@ -4,9 +4,11 @@ Welcome to the official documentation for **JQL (JSON Query Language)**. JQL is 
 
 ## 🏁 Getting Started
 
-If you are new to JQL, start here:
+> If you are new to JQL, start here:
 
-- [**Quick Start**](../README.md#getting-started) - Install and run your first query in 60 seconds.
+- [**Quick Start**](quick-start.md) - Comprehensive guide with examples, streaming, and real-world patterns.
+- [**CLI Guide**](cli-guide.md) - Master the command-line interface for shell pipelines and data exploration.
+- [**Mental Model**](mental-model.md) - Understand the core concepts and architecture of JQL.
 - [**Query Language Guide**](query-language.md) - Learn the JQL syntax, aliasing, and directives.
 - [**API Reference**](api-reference.md) - Deep dive into Runtimes, Adapters, and the Core Engine.
 
@@ -17,10 +19,10 @@ Understand why JQL is the fastest JSON engine for the edge:
 - [**Internals Deep-Dive**](internals.md) - Learn about GC-Free tokenization, binary line splitting, and object recycling.
 - [**Performance Contract**](performance.md) - Our ironclad guarantees for time and memory complexity.
 
-## 🛡️ Reliability & Roadmap
+## 🛡️ Reliability
 
 - [**Error Handling**](error-handling.md) - JQL's behavior with malformed JSON and corrupted streams.
-- [**Project Roadmap**](roadmap.md) - Our vision for Enterprise Edge Adapters and future features.
+- [**Non Goals**](non-goals.md) - JQL's non-goals and trade-offs.
 
 ---
 
