@@ -1,5 +1,57 @@
 # Changelog
 
+## [3.1.0] - 2026-01-05
+
+### Added - Phase 3: P2 Consumer Experience
+
+#### Async Sink Interface
+
+- **Graceful Shutdown**: `onDrain()` callback for clean resource cleanup
+- **Backpressure Support**: Async callbacks with Promise-based flow control
+- **Composable Architecture**: Modular sink design for extensibility
+
+#### NDJSON Parallel Adapter
+
+- **Worker Pool**: Bounded parallelism with configurable worker count (default: 4)
+- **Ordering Modes**: `preserve` (sequential) and `relaxed` (unordered) output
+- **Serial Fallback**: Automatic fallback when `parallel: false`
+- **Backpressure**: Bounded reorder buffer prevents memory overflow
+- **Post-Build Testing**: Integration tests run against compiled code
+
+#### Compression Sink
+
+- **Gzip Support**: Streaming gzip compression (levels 1-9, default: 6)
+- **Brotli Support**: Higher compression ratio (levels 0-11, default: 4)
+- **Worker Pool**: Non-blocking compression via worker threads
+- **Stats Tracking**: Real-time compression ratio and throughput metrics
+- **Stream Compatibility**: Both Node.js and Web Streams supported
+
+#### Testing & Validation
+
+- **Large File Tests**: 1GB+ validation with 577K+ records
+- **Performance**: 686 Mbps average, 832 Mbps peak throughput
+- **Test Coverage**: 48 tests passing, 7 post-build integration tests
+
+### Changed
+
+- Worker pool now uses Node.js `worker_threads` instead of Web Workers
+- Runtime layer handles backpressure for all async sinks
+- Parallel mode tests skip in development (TypeScript), run post-build
+
+### Performance
+
+- **Average Throughput**: 686 Mbps (1GB files)
+- **Peak Throughput**: 832 Mbps (10-level nested)
+- **Stability**: Consistent performance across workload types
+- **Memory**: O(D) maintained with bounded buffers
+
+### Documentation
+
+- Added compression sink usage examples
+- Added parallel adapter configuration guide
+- Updated performance benchmarks
+- Added large file validation results
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

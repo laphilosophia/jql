@@ -5,26 +5,27 @@
 Byte-level, zero-allocation, O(1) memory. Built for FinTech, telemetry, and edge runtimes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-35%2F35-brightgreen.svg)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-48%2F48-brightgreen.svg)](src/__tests__)
 
 ---
 
 ## Proof
 
 ```bash
-# 1,000,000 rows in 4.33 seconds
+# 1GB files in ~12 seconds
 npm run bench
 ```
 
 | Metric                | Result             | Guarantee      |
 | --------------------- | ------------------ | -------------- |
-| Throughput (1GB)      | **938 Mbps**       | O(N) time      |
+| Throughput (1GB avg)  | **686 Mbps**       | O(N) time      |
+| Throughput (peak)     | **832 Mbps**       | Consistent     |
 | Memory                | 37 MB constant     | O(D) space     |
 | Nesting (1000 levels) | 1.4ms              | Stack-safe     |
 | Raw Emission          | **-6.3%** overhead | Zero-copy      |
 | Large Strings (50MB)  | **1.6 Gbps**       | No degradation |
 
-> **Battle-Proven**: Validated on 1GB files, pathological strings, and zero-copy streaming. [See benchmarks →](docs/performance.md#6-defensible-claims)
+> **Battle-Proven**: Validated on 1GB+ files with 577K+ records, deep nesting, and parallel processing. [See benchmarks →](docs/performance.md)
 
 ---
 
@@ -107,6 +108,44 @@ tail -f telemetry.log | jql --ndjson "{ lat, lon }"
 - **Telemetry** (`onStats` for real-time metrics)
 - **Raw emission** (`emitRaw` for zero-copy byte streams)
 - **OutputSink** (decoupled data routing)
+- **Async Sink** (`onDrain` for graceful shutdown)
+- **NDJSON Parallel** (worker pool with ordering)
+- **Compression Sink** (gzip/brotli streaming)
+
+---
+
+## Phase 3 Features (NEW)
+
+### Compression Sink
+
+```typescript
+import { createCompressionSink } from 'jql'
+import { createWriteStream } from 'fs'
+
+await query(largeFile, '{ logs }', {
+  emitMode: 'raw',
+  sink: createCompressionSink({
+    algorithm: 'gzip',
+    level: 6,
+    output: createWriteStream('output.json.gz'),
+    onStats: (stats) => console.log(`Ratio: ${stats.compressionRatio.toFixed(2)}x`),
+  }),
+})
+```
+
+### NDJSON Parallel
+
+```typescript
+import { ndjsonParallel } from 'jql'
+
+for await (const row of ndjsonParallel(stream, '{ id, name }', {
+  parallel: true,
+  workers: 4,
+  ordering: 'preserve', // or 'relaxed'
+})) {
+  console.log(row)
+}
+```
 
 ---
 
