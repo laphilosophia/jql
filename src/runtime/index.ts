@@ -40,6 +40,28 @@ export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance 
       const parser = new JQLParser(schema)
       const map = parser.parse()
 
+      // Collect async sink promises for backpressure
+      const pendingPromises: Promise<void>[] = []
+
+      // Wrap sink to collect promises (for both buffer and stream modes)
+      const wrappedSink = options.sink
+        ? {
+            onMatch: (data: any) => {
+              const result = options.sink!.onMatch?.(data)
+              if (result instanceof Promise) {
+                pendingPromises.push(result)
+              }
+            },
+            onRawMatch: (chunk: Uint8Array) => {
+              const result = options.sink!.onRawMatch?.(chunk)
+              if (result instanceof Promise) {
+                pendingPromises.push(result)
+              }
+            },
+            onStats: options.sink.onStats,
+          }
+        : undefined
+
       // Auto-wrap selection if it looks like an object-selector but source might be an array
       // In JQL V2, if root is array, the Engine applies selection to its elements.
       const engine = new Engine(map, {
@@ -47,7 +69,7 @@ export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance 
         signal: options.signal,
         budget: options.budget,
         onMatch: options.onMatch,
-        sink: options.sink,
+        sink: wrappedSink,
         emitMode: options.emitMode,
       })
 
@@ -57,15 +79,24 @@ export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance 
             '[JQL] Indexed mode is not supported for ReadableStream. Falling back to streaming.'
           )
         }
+
         const reader = source.getReader()
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
           engine.processChunk(value)
         }
+
+        // Wait for all pending async sink operations
+        await Promise.all(pendingPromises)
+
         if (options.sink?.onStats) {
           options.sink.onStats(engine.getStats())
         }
+
+        // Graceful shutdown - call onDrain if present
+        await options.sink?.onDrain?.()
+
         const res = engine.getResult()
         // If we have an onMatch handler, and the result is the root array itself,
         // we've already emitted its elements. Returning the full array here
@@ -96,7 +127,15 @@ export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance 
         }
       }
 
-      return engine.execute(buffer.subarray(startOffset)) as T
+      const result = engine.execute(buffer.subarray(startOffset)) as T
+
+      // Wait for all pending async sink operations
+      await Promise.all(pendingPromises)
+
+      // Graceful shutdown - call onDrain if present
+      await options.sink?.onDrain?.()
+
+      return result
     },
   }
 
