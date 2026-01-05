@@ -11,7 +11,7 @@ async function main() {
   const flags = args.filter(a => a.startsWith('--'));
   const params = args.filter(a => !a.startsWith('--'));
 
-  if (flags.includes('--ndjson')) isNDJSON = true;
+  if (flags.includes('--ndjson') || flags.includes('--jsonl')) isNDJSON = true;
 
   if (params.length === 1) {
     schema = params[0];

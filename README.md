@@ -82,12 +82,12 @@ jql data.json "{ id, name }"
 # 2. Piping from stdin
 cat massive.json | jql "{ actor.login }"
 
-# 3. High-performance NDJSON (Line-delimited) processing
-tail -f telemetery.log | jql --ndjson "{ lat, lon }"
+# 3. High-performance NDJSON / JSONL (Line-delimited) processing
+tail -f telemetery.log | jql --jsonl "{ lat, lon }"
 ```
 
 > [!TIP]
-> Use the `--ndjson` flag for line-delimited JSON files to enable FSM recycling, which significantly reduces GC pressure on massive streams.
+> Use the `--ndjson` or `--jsonl` flag for line-delimited JSON files to enable FSM recycling, which significantly reduces GC pressure on massive streams.
 
 ---
 

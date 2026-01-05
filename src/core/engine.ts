@@ -143,14 +143,16 @@ export class Engine {
     // Handle @default for missing keys in objects
     if (selection !== false && !this.isArray() && selection.selection) {
       const result = this.resultStack[this.resultStack.length - 1];
-      for (const [key, config] of Object.entries(selection.selection)) {
-        const conf = config as any;
-        const targetKey = conf.alias || key;
-        if (!(targetKey in result)) {
-          if (conf.directives) {
-            const defaultValue = this.applyDirectives(undefined, conf.directives);
-            if (defaultValue !== undefined) {
-              result[targetKey] = defaultValue;
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        for (const [key, config] of Object.entries(selection.selection)) {
+          const conf = config as any;
+          const targetKey = conf.alias || key;
+          if (!(targetKey in result)) {
+            if (conf.directives) {
+              const defaultValue = this.applyDirectives(undefined, conf.directives);
+              if (defaultValue !== undefined) {
+                result[targetKey] = defaultValue;
+              }
             }
           }
         }
