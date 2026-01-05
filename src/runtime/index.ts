@@ -1,18 +1,23 @@
-import { Engine } from '../core/engine';
-import { JQLParser } from '../core/parser';
-import { Tokenizer, TokenType } from '../core/tokenizer';
+import { Engine } from '../core/engine'
+import { JQLParser } from '../core/parser'
+import { Tokenizer, TokenType } from '../core/tokenizer'
 
-export type JQLSource = string | Uint8Array | object | ReadableStream<Uint8Array>;
+export type JQLSource = string | Uint8Array | object | ReadableStream<Uint8Array>
 
-export type JQLMode = 'streaming' | 'indexed';
+export type JQLMode = 'streaming' | 'indexed'
 
 export interface JQLOptions {
-  mode?: JQLMode;
-  debug?: boolean;
+  mode?: JQLMode
+  debug?: boolean
+  signal?: AbortSignal
+  budget?: { maxMatches?: number; maxBytes?: number; maxDurationMs?: number }
+  onMatch?: (data: any) => void
+  sink?: import('../core/sink').OutputSink
+  emitMode?: 'object' | 'raw'
 }
 
 export interface JQLInstance {
-  read: <T = any>(schema: string) => Promise<T>;
+  read: <T = any>(schema: string) => Promise<T>
 }
 
 /**
@@ -25,61 +30,77 @@ export interface JQLInstance {
  * - Indexed mode is opt-in to maintain O(1) memory guarantees by default.
  */
 export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance {
-  let rootIndex: Map<string, number> | undefined;
-  let queryCount = 0;
-  const mode = options.mode || 'streaming';
+  let rootIndex: Map<string, number> | undefined
+  let queryCount = 0
+  const mode = options.mode || 'streaming'
 
   const instance: JQLInstance = {
     read: async <T = any>(schema: string): Promise<T> => {
-      queryCount++;
-      const parser = new JQLParser(schema);
-      const map = parser.parse();
+      queryCount++
+      const parser = new JQLParser(schema)
+      const map = parser.parse()
 
       // Auto-wrap selection if it looks like an object-selector but source might be an array
       // In JQL V2, if root is array, the Engine applies selection to its elements.
-      const engine = new Engine(map, { debug: options.debug });
+      const engine = new Engine(map, {
+        debug: options.debug,
+        signal: options.signal,
+        budget: options.budget,
+        onMatch: options.onMatch,
+        sink: options.sink,
+        emitMode: options.emitMode,
+      })
 
       if (source instanceof ReadableStream) {
         if (mode === 'indexed') {
-          console.warn('[JQL] Indexed mode is not supported for ReadableStream. Falling back to streaming.');
+          console.warn(
+            '[JQL] Indexed mode is not supported for ReadableStream. Falling back to streaming.'
+          )
         }
-        const reader = source.getReader();
+        const reader = source.getReader()
         while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          engine.processChunk(value);
+          const { done, value } = await reader.read()
+          if (done) break
+          engine.processChunk(value)
         }
-        return engine.getResult() as T;
+        if (options.sink?.onStats) {
+          options.sink.onStats(engine.getStats())
+        }
+        const res = engine.getResult()
+        // If we have an onMatch handler, and the result is the root array itself,
+        // we've already emitted its elements. Returning the full array here
+        // is standard for read(), but for subscribe() we need to be careful.
+        return res as T
       }
 
-      const buffer = prepareBuffer(source as Exclude<JQLSource, ReadableStream<Uint8Array>>);
+      const buffer = prepareBuffer(source as Exclude<JQLSource, ReadableStream<Uint8Array>>)
 
       // Progressive indexing: only if mode is 'indexed' and it's a repeat query
       if (mode === 'indexed' && queryCount > 1 && !rootIndex && buffer.length > 1024 * 1024) {
-        rootIndex = buildRootIndex(buffer);
+        rootIndex = buildRootIndex(buffer)
       }
 
-      let startOffset = 0;
+      let startOffset = 0
       if (mode === 'indexed' && rootIndex) {
-        const rootKeys = Object.keys(map);
-        let minOffset = Infinity;
+        const rootKeys = Object.keys(map)
+        let minOffset = Infinity
         for (const key of rootKeys) {
-          const offset = rootIndex.get(key);
+          const offset = rootIndex.get(key)
           if (offset !== undefined && offset < minOffset) {
-            minOffset = offset;
+            minOffset = offset
           }
         }
         if (minOffset !== Infinity) {
           // Jump to the first needed key with a safety cushion
-          startOffset = Math.max(0, minOffset - 50);
+          startOffset = Math.max(0, minOffset - 50)
         }
       }
 
-      return engine.execute(buffer.subarray(startOffset)) as T;
-    }
-  };
+      return engine.execute(buffer.subarray(startOffset)) as T
+    },
+  }
 
-  return instance;
+  return instance
 }
 
 /**
@@ -90,41 +111,45 @@ export function build(source: JQLSource, options: JQLOptions = {}): JQLInstance 
  * @returns Map of key names to their byte positions
  */
 function buildRootIndex(buffer: Uint8Array): Map<string, number> {
-  const index = new Map<string, number>();
-  const tokenizer = new Tokenizer();
-  let depth = 0;
-  let currentKey: string | null = null;
+  const index = new Map<string, number>()
+  const tokenizer = new Tokenizer()
+  let depth = 0
+  let currentKey: string | null = null
 
   for (const token of tokenizer.tokenize(buffer)) {
     if (token.type === TokenType.LEFT_BRACE || token.type === TokenType.LEFT_BRACKET) {
-      depth++;
+      depth++
     } else if (token.type === TokenType.RIGHT_BRACE || token.type === TokenType.RIGHT_BRACKET) {
-      depth--;
+      depth--
       // Early exit: if we've exited the root object and have keys, we're done
       if (depth === 0 && index.size > 0) {
-        break;
+        break
       }
     } else if (depth === 1 && token.type === TokenType.STRING && currentKey === null) {
       // At root level, found a potential key
-      currentKey = token.value as string;
+      currentKey = token.value as string
     } else if (depth === 1 && token.type === TokenType.COLON && currentKey !== null) {
       // Found the colon after a key, record the position
-      index.set(currentKey, token.start);
-      currentKey = null;
+      index.set(currentKey, token.start)
+      currentKey = null
     }
   }
 
-  return index;
+  return index
 }
 
-export async function query<T = any>(source: JQLSource, schema: string, options?: JQLOptions): Promise<T> {
-  const { read } = build(source, options);
-  return read<T>(schema);
+export async function query<T = any>(
+  source: JQLSource,
+  schema: string,
+  options?: JQLOptions
+): Promise<T> {
+  const { read } = build(source, options)
+  return read<T>(schema)
 }
 
 function prepareBuffer(source: JQLSource): Uint8Array {
-  if (source instanceof Uint8Array) return source;
-  if (typeof source === 'string') return new TextEncoder().encode(source);
-  if (typeof source === 'object') return new TextEncoder().encode(JSON.stringify(source));
-  throw new Error('Invalid JQL source provided');
+  if (source instanceof Uint8Array) return source
+  if (typeof source === 'string') return new TextEncoder().encode(source)
+  if (typeof source === 'object') return new TextEncoder().encode(JSON.stringify(source))
+  throw new Error('Invalid JQL source provided')
 }

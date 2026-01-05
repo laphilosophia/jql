@@ -17,31 +17,31 @@ export class JQLError extends Error {
     public readonly position?: number,
     public line?: number
   ) {
-    super(message);
-    this.name = 'JQLError';
+    super(message)
+    this.name = 'JQLError'
 
     // Maintain proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, JQLError.prototype);
+    Object.setPrototypeOf(this, JQLError.prototype)
   }
 
   /**
    * Returns a formatted error message with position information.
    */
   public toString(): string {
-    const parts: string[] = [this.name];
+    const parts: string[] = [this.name]
 
     if (this.line !== undefined) {
-      parts.push(`[Line ${this.line}]`);
+      parts.push(`[Line ${this.line}]`)
     }
 
     if (this.position !== undefined) {
-      parts.push(`[Position ${this.position}]`);
+      parts.push(`[Position ${this.position}]`)
     }
 
-    parts.push(`[${this.code}]`);
-    parts.push(this.message);
+    parts.push(`[${this.code}]`)
+    parts.push(this.message)
 
-    return parts.join(' ');
+    return parts.join(' ')
   }
 }
 
@@ -50,9 +50,9 @@ export class JQLError extends Error {
  */
 export class TokenizationError extends JQLError {
   constructor(message: string, position: number) {
-    super(message, 'TOKENIZATION_ERROR', position);
-    this.name = 'TokenizationError';
-    Object.setPrototypeOf(this, TokenizationError.prototype);
+    super(message, 'TOKENIZATION_ERROR', position)
+    this.name = 'TokenizationError'
+    Object.setPrototypeOf(this, TokenizationError.prototype)
   }
 }
 
@@ -61,9 +61,9 @@ export class TokenizationError extends JQLError {
  */
 export class ParseError extends JQLError {
   constructor(message: string, position?: number) {
-    super(message, 'PARSE_ERROR', position);
-    this.name = 'ParseError';
-    Object.setPrototypeOf(this, ParseError.prototype);
+    super(message, 'PARSE_ERROR', position)
+    this.name = 'ParseError'
+    Object.setPrototypeOf(this, ParseError.prototype)
   }
 }
 
@@ -72,8 +72,36 @@ export class ParseError extends JQLError {
  */
 export class StructuralMismatchError extends JQLError {
   constructor(message: string, position?: number) {
-    super(message, 'STRUCTURAL_MISMATCH', position);
-    this.name = 'StructuralMismatchError';
-    Object.setPrototypeOf(this, StructuralMismatchError.prototype);
+    super(message, 'STRUCTURAL_MISMATCH', position)
+    this.name = 'StructuralMismatchError'
+    Object.setPrototypeOf(this, StructuralMismatchError.prototype)
+  }
+}
+
+/**
+ * Signals controlled termination initiated by AbortSignal.
+ * Does NOT indicate malformed input or engine failure.
+ */
+export class AbortError extends JQLError {
+  constructor(message: string = 'Operation aborted', position?: number) {
+    super(message, 'ABORTED', position)
+    this.name = 'AbortError'
+    Object.setPrototypeOf(this, AbortError.prototype)
+  }
+}
+
+/**
+ * Signals deterministic execution halt due to configured limits.
+ * Output remains valid up to the last completed emission.
+ */
+export class BudgetExhaustedError extends JQLError {
+  constructor(
+    message: string,
+    public readonly limitType: 'MATCHES' | 'BYTES' | 'DURATION',
+    position?: number
+  ) {
+    super(message, `BUDGET_EXHAUSTED_${limitType}`, position)
+    this.name = 'BudgetExhaustedError'
+    Object.setPrototypeOf(this, BudgetExhaustedError.prototype)
   }
 }

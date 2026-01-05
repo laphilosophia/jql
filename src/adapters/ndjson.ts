@@ -1,17 +1,17 @@
-import { Engine } from '../core/engine';
-import { JQLError } from '../core/errors';
-import { JQLParser } from '../core/parser';
+import { Engine } from '../core/engine'
+import { JQLError } from '../core/errors'
+import { JQLParser } from '../core/parser'
 
 /**
  * Information about an error that occurred while processing an NDJSON line.
  */
 export interface NDJSONErrorInfo {
   /** The error that occurred */
-  readonly error: JQLError;
+  readonly error: JQLError
   /** Line number where the error occurred (1-indexed) */
-  readonly lineNumber: number;
+  readonly lineNumber: number
   /** Content of the line that caused the error (decoded as string) */
-  readonly lineContent: string;
+  readonly lineContent: string
 }
 
 /**
@@ -19,30 +19,34 @@ export interface NDJSONErrorInfo {
  */
 export interface NDJSONOptions {
   /** Enable debug logging */
-  readonly debug?: boolean;
+  readonly debug?: boolean
 
   /**
    * If true, skip lines that cause errors and continue processing.
    * If false (default), throw on first error.
    */
-  readonly skipErrors?: boolean;
+  readonly skipErrors?: boolean
 
   /**
    * Callback invoked when an error occurs (only when skipErrors is true).
    * Provides detailed error information including line number and content.
    */
-  readonly onError?: (errorInfo: NDJSONErrorInfo) => void;
+  readonly onError?: (errorInfo: NDJSONErrorInfo) => void
 
   /**
    * Maximum allowed line length in bytes.
    * Prevents DoS attacks from extremely long lines.
    * Default: 10MB
    */
-  readonly maxLineLength?: number;
+  readonly maxLineLength?: number
+  /** Abort signal to stop processing */
+  readonly signal?: AbortSignal
+  /** Execution budget limits */
+  readonly budget?: { maxMatches?: number; maxBytes?: number; maxDurationMs?: number }
 }
 
 /** Default maximum line length: 10MB */
-const DEFAULT_MAX_LINE_LENGTH = 10 * 1024 * 1024;
+const DEFAULT_MAX_LINE_LENGTH = 10 * 1024 * 1024
 
 /**
  * NDJSON Adapter with fault tolerance.
@@ -72,36 +76,41 @@ export async function* ndjsonStream(
   schema: string,
   options: NDJSONOptions = {}
 ): AsyncGenerator<unknown, void, undefined> {
-  const parser = new JQLParser(schema);
-  const map = parser.parse();
-  const engine = new Engine(map, { debug: options.debug });
-  const maxLineLength = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH;
+  const parser = new JQLParser(schema)
+  const map = parser.parse()
+  const engine = new Engine(map, {
+    debug: options.debug,
+    signal: options.signal,
+    budget: options.budget,
+  })
+  const maxLineLength = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH
 
-  const reader = stream.getReader();
-  let leftover: Uint8Array | null = null;
-  let lineNumber = 0;
+  const reader = stream.getReader()
+  let leftover: Uint8Array | null = null
+  let lineNumber = 0
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      if (options.signal?.aborted) break
+      const { done, value } = await reader.read()
+      if (done) break
 
-      let chunk = value;
+      let chunk = value
       if (leftover !== null) {
-        const combined = new Uint8Array(leftover.length + value.length);
-        combined.set(leftover);
-        combined.set(value, leftover.length);
-        chunk = combined;
-        leftover = null;
+        const combined = new Uint8Array(leftover.length + value.length)
+        combined.set(leftover)
+        combined.set(value, leftover.length)
+        chunk = combined
+        leftover = null
       }
 
-      let start = 0;
+      let start = 0
       while (start < chunk.length) {
-        const newlineIndex = chunk.indexOf(10, start); // 10 is \n
+        const newlineIndex = chunk.indexOf(10, start) // 10 is \n
 
         if (newlineIndex === -1) {
           // No newline found - save for next chunk
-          const remaining = chunk.slice(start);
+          const remaining = chunk.slice(start)
 
           // DoS protection: check for extremely long lines
           if (remaining.length > maxLineLength) {
@@ -110,28 +119,28 @@ export async function* ndjsonStream(
               'LINE_TOO_LONG',
               undefined,
               lineNumber + 1
-            );
+            )
 
             if (options.skipErrors === true) {
               options.onError?.({
                 error,
                 lineNumber: lineNumber + 1,
-                lineContent: `[Line too long: ${remaining.length} bytes]`
-              });
+                lineContent: `[Line too long: ${remaining.length} bytes]`,
+              })
               // Skip this line and continue
-              leftover = null;
-              break;
+              leftover = null
+              break
             } else {
-              throw error;
+              throw error
             }
           }
 
-          leftover = remaining;
-          break;
+          leftover = remaining
+          break
         }
 
-        const line = chunk.subarray(start, newlineIndex);
-        lineNumber++;
+        const line = chunk.subarray(start, newlineIndex)
+        lineNumber++
 
         if (line.length > 0) {
           // Check line length before processing
@@ -141,62 +150,63 @@ export async function* ndjsonStream(
               'LINE_TOO_LONG',
               undefined,
               lineNumber
-            );
+            )
 
             if (options.skipErrors === true) {
               options.onError?.({
                 error,
                 lineNumber,
-                lineContent: `[Line too long: ${line.length} bytes]`
-              });
+                lineContent: `[Line too long: ${line.length} bytes]`,
+              })
               // Skip this line and continue
-              start = newlineIndex + 1;
-              continue;
+              start = newlineIndex + 1
+              continue
             } else {
-              throw error;
+              throw error
             }
           }
 
           try {
-            engine.reset();
-            const result = engine.execute(line);
-            yield result;
+            engine.reset()
+            const result = engine.execute(line)
+            yield result
           } catch (error) {
             // Convert to JQLError if needed
-            const jqlError = error instanceof JQLError
-              ? error
-              : new JQLError(
-                error instanceof Error ? error.message : String(error),
-                'UNKNOWN_ERROR'
-              );
+            const jqlError =
+              error instanceof JQLError
+                ? error
+                : new JQLError(
+                    error instanceof Error ? error.message : String(error),
+                    'UNKNOWN_ERROR'
+                  )
 
             // Add line number context
-            jqlError.line = lineNumber;
+            jqlError.line = lineNumber
 
             if (options.skipErrors === true) {
               // Decode line content for error reporting
-              const decoder = new TextDecoder('utf-8', { fatal: false });
-              const lineContent = decoder.decode(line);
+              const decoder = new TextDecoder('utf-8', { fatal: false })
+              const lineContent = decoder.decode(line)
 
               options.onError?.({
                 error: jqlError,
                 lineNumber,
-                lineContent
-              });
+                lineContent,
+              })
               // Continue to next line
             } else {
-              throw jqlError;
+              throw jqlError
             }
           }
         }
 
-        start = newlineIndex + 1;
+        start = newlineIndex + 1
       }
     }
 
     // Process final line if exists
     if (leftover !== null && leftover.length > 0) {
-      lineNumber++;
+      lineNumber++
 
       if (leftover.length > maxLineLength) {
         const error = new JQLError(
@@ -204,48 +214,49 @@ export async function* ndjsonStream(
           'LINE_TOO_LONG',
           undefined,
           lineNumber
-        );
+        )
 
         if (options.skipErrors === true) {
           options.onError?.({
             error,
             lineNumber,
-            lineContent: `[Line too long: ${leftover.length} bytes]`
-          });
+            lineContent: `[Line too long: ${leftover.length} bytes]`,
+          })
         } else {
-          throw error;
+          throw error
         }
       } else {
         try {
-          engine.reset();
-          const result = engine.execute(leftover);
-          yield result;
+          engine.reset()
+          const result = engine.execute(leftover)
+          yield result
         } catch (error) {
-          const jqlError = error instanceof JQLError
-            ? error
-            : new JQLError(
-              error instanceof Error ? error.message : String(error),
-              'UNKNOWN_ERROR'
-            );
+          const jqlError =
+            error instanceof JQLError
+              ? error
+              : new JQLError(
+                  error instanceof Error ? error.message : String(error),
+                  'UNKNOWN_ERROR'
+                )
 
-          jqlError.line = lineNumber;
+          jqlError.line = lineNumber
 
           if (options.skipErrors === true) {
-            const decoder = new TextDecoder('utf-8', { fatal: false });
-            const lineContent = decoder.decode(leftover);
+            const decoder = new TextDecoder('utf-8', { fatal: false })
+            const lineContent = decoder.decode(leftover)
 
             options.onError?.({
               error: jqlError,
               lineNumber,
-              lineContent
-            });
+              lineContent,
+            })
           } else {
-            throw jqlError;
+            throw jqlError
           }
         }
       }
     }
   } finally {
-    reader.releaseLock();
+    reader.releaseLock()
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "jql",
-  "version": "2.2.1",
+  "version": "3.0.0",
   "description": "A high-performance, streaming-first JSON Query Language (JQL) engine with $O(1)$ memory guarantees and $O(N)$ traversal cost.",
   "type": "module",
   "main": "dist/index.js",

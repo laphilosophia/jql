@@ -16,11 +16,15 @@ Byte-level, zero-allocation, O(1) memory. Built for FinTech, telemetry, and edge
 npm run bench
 ```
 
-| Metric | Result | Guarantee |
-|--------|--------|-----------|
-| Throughput | 233k rows/s | O(N) time |
-| Memory | 37 MB constant | O(D) space |
-| Nesting (1000 levels) | 1.4ms | Stack-safe |
+| Metric                | Result             | Guarantee      |
+| --------------------- | ------------------ | -------------- |
+| Throughput (1GB)      | **938 Mbps**       | O(N) time      |
+| Memory                | 37 MB constant     | O(D) space     |
+| Nesting (1000 levels) | 1.4ms              | Stack-safe     |
+| Raw Emission          | **-6.3%** overhead | Zero-copy      |
+| Large Strings (50MB)  | **1.6 Gbps**       | No degradation |
+
+> **Battle-Proven**: Validated on 1GB files, pathological strings, and zero-copy streaming. [See benchmarks →](docs/performance.md#6-defensible-claims)
 
 ---
 
@@ -37,18 +41,18 @@ npm install jql
 ### Query
 
 ```typescript
-import { query } from 'jql';
+import { query } from 'jql'
 
-const result = await query(data, '{ id, user { name, email } }');
+const result = await query(data, '{ id, user { name, email } }')
 ```
 
 ### Stream
 
 ```typescript
-import { ndjsonStream } from 'jql';
+import { ndjsonStream } from 'jql'
 
 for await (const row of ndjsonStream(stream, '{ id, name }')) {
-  console.log(row);
+  console.log(row)
 }
 ```
 
@@ -57,9 +61,9 @@ for await (const row of ndjsonStream(stream, '{ id, name }')) {
 ```typescript
 for await (const row of ndjsonStream(stream, '{ id, name }', {
   skipErrors: true,
-  onError: (info) => console.error(`Line ${info.lineNumber}: ${info.error.message}`)
+  onError: (info) => console.error(`Line ${info.lineNumber}: ${info.error.message}`),
 })) {
-  console.log(row);
+  console.log(row)
 }
 ```
 
@@ -100,6 +104,9 @@ tail -f telemetry.log | jql --ndjson "{ lat, lon }"
 - Streaming & pull modes
 - NDJSON adapter
 - Directive system
+- **Telemetry** (`onStats` for real-time metrics)
+- **Raw emission** (`emitRaw` for zero-copy byte streams)
+- **OutputSink** (decoupled data routing)
 
 ---
 
@@ -108,32 +115,32 @@ tail -f telemetry.log | jql --ndjson "{ lat, lon }"
 ### Custom Tokenizer
 
 ```typescript
-import { Tokenizer } from 'jql';
+import { Tokenizer } from 'jql'
 
-const tokenizer = new Tokenizer();
-const buffer = new TextEncoder().encode('{"key": "value"}');
+const tokenizer = new Tokenizer()
+const buffer = new TextEncoder().encode('{"key": "value"}')
 
 // Iterator (convenient)
 for (const token of tokenizer.tokenize(buffer)) {
-  console.log(token.type, token.value);
+  console.log(token.type, token.value)
 }
 
 // Callback (zero-allocation)
 tokenizer.processChunk(buffer, (token) => {
-  console.log(token.type, token.value);
-});
+  console.log(token.type, token.value)
+})
 ```
 
 ### Error Handling
 
 ```typescript
-import { JQLError, TokenizationError } from 'jql';
+import { JQLError, TokenizationError } from 'jql'
 
 try {
-  await query(data, schema);
+  await query(data, schema)
 } catch (error) {
   if (error instanceof TokenizationError) {
-    console.error(`Invalid JSON at position ${error.position}`);
+    console.error(`Invalid JSON at position ${error.position}`)
   }
 }
 ```
@@ -141,12 +148,43 @@ try {
 ### Real-Time Subscribe
 
 ```typescript
-import { subscribe } from 'jql';
+import { subscribe } from 'jql'
 
 subscribe(telemetryStream, '{ lat, lon }', {
   onMatch: (data) => console.log(data),
-  onComplete: () => console.log('Done')
-});
+  onComplete: () => console.log('Done'),
+})
+```
+
+### Telemetry
+
+```typescript
+import { query } from 'jql'
+
+await query(stream, '{ id, name }', {
+  sink: {
+    onStats: (stats) => {
+      console.log(`Throughput: ${stats.throughputMbps.toFixed(2)} Mbps`)
+      console.log(`Skip ratio: ${(stats.skipRatio * 100).toFixed(1)}%`)
+    },
+  },
+})
+```
+
+### Raw Emission (Zero-Copy)
+
+```typescript
+import { query } from 'jql'
+
+await query(stream, '{ items { id } }', {
+  emitMode: 'raw',
+  sink: {
+    onRawMatch: (bytes) => {
+      // Pipe original JSON bytes directly to another stream
+      outputStream.write(bytes)
+    },
+  },
+})
 ```
 
 ---
@@ -165,6 +203,12 @@ Large File: 25 MB
 Streaming:          255ms
 Deep Extraction:    245ms
 ReadableStream:     260ms
+
+Stress Test: 1 GB
+
+Simple Projection:  10.07s (875.84 Mbps)
+Nested Projection:  10.15s (869.22 Mbps)
+Multi-Field:        10.01s (880.62 Mbps)
 ```
 
 ---
