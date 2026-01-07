@@ -2,7 +2,7 @@
 
 A streaming JSON projection engine. Selects and extracts fields from JSON without parsing the entire structure.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: BSL](https://img.shields.io/badge/License-BSL-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-48%2F48-brightgreen.svg)](src/__tests__)
 
 ---
