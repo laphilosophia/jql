@@ -1,5 +1,32 @@
 # Changelog
 
+## [3.2.1] - 2026-01-07
+
+### Changed - Documentation Rewrite
+
+Complete documentation overhaul following new format guidelines:
+
+- **Format Standardization**: All documentation follows new specification
+  - Philosophy-first structure with "why" before "what"
+  - Code evidence from actual source files
+  - Senior-to-senior academic tone
+  - No marketing language or emoji
+
+- **Condensed Guides**:
+  - `quick-start.md`: 388 → 100 lines (-74%)
+  - `cli-guide.md`: 511 → 130 lines (-75%)
+
+- **Enhanced Documentation**:
+  - `internals.md`: Added 4 code evidence blocks
+  - `capabilities.md`: Added 5 code evidence blocks
+  - `performance.md`: Added benchmark code and methodology
+  - `api-reference.md`: Complete API coverage including `ndjsonParallel`, `createCompressionSink`
+  - `error-handling.md`: Added error class hierarchy with usage patterns
+
+- **Root README**: Updated with BSL badge, aligned benchmarks, modest value proposition
+
+---
+
 ## [3.2.0] - 2026-01-06
 
 ### Added - Phase 4: Operational Safety
