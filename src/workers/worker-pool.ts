@@ -3,6 +3,9 @@
  * Uses Node.js worker_threads for Node.js environments
  */
 
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
 export interface WorkerPoolOptions {
@@ -20,15 +23,32 @@ export class WorkerPool {
   }[] = []
 
   constructor(private options: WorkerPoolOptions) {
-    // Create workers using URL resolution
+    // Resolve worker path based on environment
+    const workerUrl = this.resolveWorkerPath(options.scriptPath)
+
+    // Create workers
     for (let i = 0; i < options.size; i++) {
-      const worker = new Worker(new URL(options.scriptPath, import.meta.url), {
-        // Enable TypeScript execution in development/test environments
-        execArgv: ['--import', 'tsx'],
-      })
+      const worker = new Worker(workerUrl)
       this.workers.push(worker)
       this.availableWorkers.push(worker)
     }
+  }
+
+  /**
+   * Resolve worker path for both dev (.ts) and production (.js) environments
+   */
+  private resolveWorkerPath(scriptPath: string): URL | string {
+    const currentDir = dirname(fileURLToPath(import.meta.url))
+
+    // Try .js version first (production/CI)
+    const jsPath = resolve(currentDir, scriptPath.replace(/\.ts$/, '.js'))
+    if (existsSync(jsPath)) {
+      return jsPath
+    }
+
+    // Fall back to .ts with tsx (development with vitest)
+    // This works when vitest runs the tests
+    return new URL(scriptPath, import.meta.url)
   }
 
   async execute<T = any>(data: any): Promise<T> {
