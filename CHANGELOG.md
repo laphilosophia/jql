@@ -1,5 +1,42 @@
 # Changelog
 
+## [3.2.2] - 2026-01-07
+
+### Added - Phase 5.1: Structural Skip Optimization
+
+#### Chunked Execution API
+
+- **`executeChunked(buffer, chunkSize?)`**: New Engine method for processing large single buffers
+  - Splits input into fixed-size chunks (default: 64KB, min: 4KB)
+  - Enables byte-level skip optimization for monolithic buffers
+  - Zero-copy via `subarray()` - no additional allocations
+
+#### Performance Breakthrough
+
+- **6.5x throughput improvement** on skip-heavy workloads:
+  - `execute()` (single buffer): 668 Mbps
+  - `executeChunked(64KB)`: 4,365 Mbps (+553%)
+  - `executeChunked(32KB)`: 4,408 Mbps (+560%)
+
+#### Hybrid Skip Architecture
+
+- **Token-level skip**: Handles initiation chunk remainder (~10% gain)
+- **Byte-level skip**: High-speed scanner for subsequent chunks
+- **Deferred model**: Deliberate trade-off preserving tokenizer simplicity
+
+### Changed
+
+- Dead code cleanup: Removed unused `closeByte` variable in skip scanner
+- Test suite expanded to 57 tests (+4 executeChunked tests)
+
+### Documentation
+
+- Updated `structural_skip_plan.md` with benchmark results
+- Added single-buffer limitation WARNING with mitigation
+- Session summary updated with final performance metrics
+
+---
+
 ## [3.2.1] - 2026-01-07
 
 ### Changed - Documentation Rewrite
@@ -7,16 +44,19 @@
 Complete documentation overhaul following new format guidelines:
 
 - **Format Standardization**: All documentation follows new specification
+
   - Philosophy-first structure with "why" before "what"
   - Code evidence from actual source files
   - Senior-to-senior academic tone
   - No marketing language or emoji
 
 - **Condensed Guides**:
+
   - `quick-start.md`: 388 → 100 lines (-74%)
   - `cli-guide.md`: 511 → 130 lines (-75%)
 
 - **Enhanced Documentation**:
+
   - `internals.md`: Added 4 code evidence blocks
   - `capabilities.md`: Added 5 code evidence blocks
   - `performance.md`: Added benchmark code and methodology

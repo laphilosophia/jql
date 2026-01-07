@@ -48,10 +48,10 @@ import { subscribe } from 'jql'
 const sub = subscribe(stream, '{ id }', {
   onMatch: (data) => console.log(data),
   onComplete: () => console.log('done'),
-  onError: (err) => console.error(err)
+  onError: (err) => console.error(err),
 })
 
-sub.unsubscribe()  // Cancel
+sub.unsubscribe() // Cancel
 ```
 
 **Parameters:**
@@ -114,7 +114,7 @@ interface NDJSONOptions {
   debug?: boolean
   skipErrors?: boolean
   onError?: (info: NDJSONErrorInfo) => void
-  maxLineLength?: number  // Default: 10MB
+  maxLineLength?: number // Default: 10MB
   signal?: AbortSignal
   budget?: { maxMatches?: number; maxBytes?: number; maxDurationMs?: number }
 }
@@ -146,12 +146,35 @@ Low-level APIs for custom adapters.
 
 ```ts
 import { Engine } from 'jql'
+import { JQLParser } from 'jql'
 
-const engine = new Engine(selectionMap, options)
-engine.processChunk(chunk)
+const schema = new JQLParser('{ id, name }').parse()
+const engine = new Engine(schema, options)
+
+// Standard execution
+const result = engine.execute(buffer)
+
+// Chunked execution (6.5x faster on skip-heavy workloads)
+const result = engine.executeChunked(buffer) // 64KB default
+const result = engine.executeChunked(buffer, 32768) // Custom chunk size
+
+// Streaming (manual chunk processing)
+engine.processChunk(chunk1)
+engine.processChunk(chunk2)
 const result = engine.getResult()
-engine.reset()  // Recycle for next document
+
+// Recycle for next document
+engine.reset()
 ```
+
+**Methods:**
+
+- `execute(buffer)`: Single-buffer execution
+- `executeChunked(buffer, chunkSize?)`: Chunked execution for large buffers (default: 64KB)
+- `processChunk(chunk)`: Process a single chunk (streaming mode)
+- `getResult()`: Retrieve the parsed result
+- `getStats()`: Retrieve performance telemetry
+- `reset()`: Clear state for reuse
 
 ### `Tokenizer`
 
@@ -191,7 +214,7 @@ import { createCompressionSink } from 'jql'
 
 const sink = createCompressionSink({
   onChunk: (chunk) => stream.write(chunk),
-  compression: 'gzip'
+  compression: 'gzip',
 })
 ```
 
@@ -206,7 +229,7 @@ import {
   ParseError,
   StructuralMismatchError,
   AbortError,
-  BudgetExhaustedError
+  BudgetExhaustedError,
 } from 'jql'
 ```
 
@@ -220,7 +243,7 @@ See [Error Handling](error-handling.md) for details.
 interface Token {
   type: TokenType
   value?: unknown
-  start: number   // Byte offset
+  start: number // Byte offset
   end: number
 }
 ```
@@ -229,11 +252,17 @@ interface Token {
 
 ```ts
 enum TokenType {
-  LEFT_BRACE, RIGHT_BRACE,
-  LEFT_BRACKET, RIGHT_BRACKET,
-  COLON, COMMA,
-  STRING, NUMBER,
-  TRUE, FALSE, NULL,
-  EOF
+  LEFT_BRACE,
+  RIGHT_BRACE,
+  LEFT_BRACKET,
+  RIGHT_BRACKET,
+  COLON,
+  COMMA,
+  STRING,
+  NUMBER,
+  TRUE,
+  FALSE,
+  NULL,
+  EOF,
 }
 ```

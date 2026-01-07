@@ -13,6 +13,10 @@ export class Engine {
 
   private currentKey: string | null = null
   private skipDepth = 0
+  // Skip scanner state (persists across chunk boundaries)
+  private skipInString = false // String state for multi-chunk strings
+  private skipEscaped = false // Escape state for multi-chunk escapes
+  private skipOpenByte: number = 0 // 123 ('{') or 91 ('[')
   private isArrayStack: boolean[] = []
   private sink?: OutputSink
   private debug = false
@@ -82,6 +86,9 @@ export class Engine {
     this.keyStack = []
     this.currentKey = null
     this.skipDepth = 0
+    this.skipInString = false
+    this.skipEscaped = false
+    this.skipOpenByte = 0
     this.isArrayStack = []
     this.finalResult = undefined
   }
@@ -98,14 +105,141 @@ export class Engine {
     return result
   }
 
+  /**
+   * Execute with chunked processing for large buffers.
+   * Splits the input into fixed-size chunks to enable byte-level skip optimization.
+   *
+   * Use this instead of execute() when:
+   * - Processing large files loaded entirely into memory
+   * - Query skips significant portions of the input
+   *
+   * @param source - Full input buffer
+   * @param chunkSize - Chunk size in bytes (default: 64KB, min: 4KB)
+   * @returns Parsed result
+   */
+  public executeChunked(source: Uint8Array, chunkSize = 64 * 1024): any {
+    // Enforce minimum chunk size to avoid excessive overhead
+    const effectiveChunkSize = Math.max(chunkSize, 4 * 1024)
+
+    for (let i = 0; i < source.length; i += effectiveChunkSize) {
+      const end = Math.min(i + effectiveChunkSize, source.length)
+      this.processChunk(source.subarray(i, end))
+    }
+
+    const result = this.getResult()
+
+    if (this.sink?.onStats) {
+      this.sink.onStats(this.getStats())
+    }
+    return result
+  }
+
   private currentChunk: Uint8Array | null = null
+
+  /**
+   * Byte-level skip scanner: Skip to end of unmatched structure without tokenizing.
+   * Handles multi-chunk structures by persisting state (skipInString, skipEscaped).
+   *
+   * @param chunk - Current chunk being processed
+   * @param startPos - Position to start scanning from
+   * @returns Position after structure end, or chunk.length if structure continues
+   */
+  private skipToStructureEnd(chunk: Uint8Array, startPos: number): number {
+    let depth = this.skipDepth
+    let inString = this.skipInString
+    let escaped = this.skipEscaped
+    // Note: We count ALL bracket types ({ } [ ]) because JSON structures can be mixed
+
+    for (let i = startPos; i < chunk.length; i++) {
+      const byte = chunk[i]
+
+      // String handling (CRITICAL: brackets inside strings don't count)
+      if (inString) {
+        if (escaped) {
+          escaped = false
+          continue
+        }
+        if (byte === 92) {
+          // backslash
+          escaped = true
+          continue
+        }
+        if (byte === 34) {
+          // quote
+          inString = false
+        }
+        continue
+      }
+
+      // Structural characters
+      if (byte === 34) {
+        // quote
+        inString = true
+        continue
+      }
+
+      // Count ALL opening brackets (JSON can have mixed { and [ within structures)
+      if (byte === 123 || byte === 91) {
+        // { or [
+        depth++
+      } else if (byte === 125 || byte === 93) {
+        // } or ]
+        depth--
+
+        if (depth === 0) {
+          // Structure complete! Reset state
+          this.skipDepth = 0
+          this.skipInString = false
+          this.skipEscaped = false
+          this.skipOpenByte = 0
+          return i // Position AT closing bracket (will be tokenized)
+        }
+      }
+    }
+
+    // Structure continues in next chunk - PERSIST STATE
+    this.skipDepth = depth
+    this.skipInString = inString
+    this.skipEscaped = escaped
+
+    return chunk.length
+  }
 
   public processChunk(chunk: Uint8Array) {
     this.processedBytes += chunk.length
     this.currentChunk = chunk
+    const baseOffset = this.processedBytes - chunk.length // Fixed offset calculation
 
     this.enforceBudget()
 
+    // Byte-level skip: Skip unmatched structures without tokenizing
+    if (this.skipDepth > 0) {
+      const skippedPos = this.skipToStructureEnd(chunk, 0)
+
+      if (skippedPos < chunk.length) {
+        // Structure end found within this chunk
+        this.totalSkipTime += performance.now() - this.skipStartTime
+
+        // Note: Don't call onStructureEnd() here - the closing bracket
+        // will be tokenized in remainder and trigger onStructureEnd normally
+
+        // Process remainder of chunk (includes closing bracket)
+        const remainder = chunk.subarray(skippedPos)
+        if (remainder.length > 0) {
+          // Reset tokenizer state since we skipped bytes
+          this.tokenizer.reset()
+          this.tokenizer.processChunk(
+            remainder,
+            (token) => this.handleToken(token),
+            () => this.enforceBudget()
+          )
+        }
+      }
+      // else: structure continues in next chunk, state already persisted
+      return
+    }
+
+    // Normal processing (raw capture happens AFTER skip check)
     if (this.emitMode === 'raw' && this.isCapturing) {
       this.rawBuffer.push(new Uint8Array(chunk))
     }
@@ -158,11 +292,14 @@ export class Engine {
   }
 
   private handleToken(token: Token) {
+    // Token-level skip for same-chunk scenarios
+    // NOTE: Byte-level skip only activates on NEXT chunk (deferred model).
+    // This is intentional to preserve tokenizer simplicity. At most one
+    // chunk following skip entry is tokenized. See structural_skip_plan.md.
     if (this.skipDepth > 0) {
       if (token.type === TokenType.LEFT_BRACE || token.type === TokenType.LEFT_BRACKET) {
         this.skipDepth++
         // Fan-out guard: even skipped structures count toward depth limit
-        // This prevents DoS attacks via deeply nested unmatched structures
         this.fanOutGuard?.enterStructure(token.type === TokenType.LEFT_BRACKET)
       } else if (token.type === TokenType.RIGHT_BRACE || token.type === TokenType.RIGHT_BRACKET) {
         this.skipDepth--
@@ -170,6 +307,10 @@ export class Engine {
         this.fanOutGuard?.exitStructure()
         if (this.skipDepth === 0) {
           this.totalSkipTime += performance.now() - this.skipStartTime
+          // Reset skip state
+          this.skipInString = false
+          this.skipEscaped = false
+          this.skipOpenByte = 0
           this.onStructureEnd(token.end)
         }
       }
@@ -291,11 +432,21 @@ export class Engine {
         parentResult[targetKey!] = newObj
         this.resultStack.push(newObj)
       } else {
-        if (this.skipDepth === 0) this.skipStartTime = performance.now()
+        if (this.skipDepth === 0) {
+          this.skipStartTime = performance.now()
+          this.skipOpenByte = isArray ? 91 : 123 // [ or {
+          this.skipInString = false
+          this.skipEscaped = false
+        }
         this.skipDepth = 1
       }
     } else {
-      if (this.skipDepth === 0) this.skipStartTime = performance.now()
+      if (this.skipDepth === 0) {
+        this.skipStartTime = performance.now()
+        this.skipOpenByte = isArray ? 91 : 123 // [ or {
+        this.skipInString = false
+        this.skipEscaped = false
+      }
       this.skipDepth = 1
     }
 

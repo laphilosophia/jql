@@ -17,15 +17,16 @@ This isn't a marginal improvement. On high-volume workloads, JQL processes JSON 
 
 ## Performance
 
-| Metric | Result | Guarantee |
-|--------|--------|-----------|
-| Throughput (1GB) | 809-939 Mbps | O(N) time |
-| Memory | Constant | O(D) space |
-| 1M NDJSON rows | ~4.2s | 220k+ rows/s |
-| Deep nesting (1k levels) | < 1ms | Stack-safe |
-| Large strings (50MB) | 1.6 Gbps | No degradation |
+| Metric                   | Result         | Guarantee      |
+| ------------------------ | -------------- | -------------- |
+| Throughput (1GB)         | 809-939 Mbps   | O(N) time      |
+| Skip-heavy (chunked)     | **4,408 Mbps** | 6.5x faster    |
+| Memory                   | Constant       | O(D) space     |
+| 1M NDJSON rows           | ~4.2s          | 220k+ rows/s   |
+| Deep nesting (1k levels) | < 1ms          | Stack-safe     |
+| Large strings (50MB)     | 1.6 Gbps       | No degradation |
 
-*Validated on 1GB+ files. See [Performance Contract](docs/performance.md) for methodology.*
+_Validated on 1GB+ files. See [Performance Contract](docs/performance.md) for methodology._
 
 ---
 
@@ -115,6 +116,24 @@ tail -f telemetry.log | jql --ndjson "{ lat, lon }"
 ---
 
 ## Advanced
+
+### Chunked Execution (Large Files)
+
+For maximum throughput on large single-buffer inputs:
+
+```typescript
+import { Engine } from 'jql'
+import { JQLParser } from 'jql'
+import { readFileSync } from 'fs'
+
+const buffer = readFileSync('large-file.json')
+const schema = new JQLParser('{ id, name }').parse()
+const engine = new Engine(schema)
+
+// 6.5x faster on skip-heavy workloads
+const result = engine.executeChunked(buffer) // 64KB chunks (default)
+const result = engine.executeChunked(buffer, 32768) // Custom 32KB chunks
+```
 
 ### Low-Level Tokenizer
 
